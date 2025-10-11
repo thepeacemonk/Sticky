@@ -5,7 +5,7 @@
 </h2>
 
 <h4 align="center">
-  Globe is a add-on for Anki that displays a widget with your current temperature and forecast through OpenMateo 
+  A minimal Anki add-on/widget that allows you write messages on main menu. 
 </h4>
 
 ## Preview 
