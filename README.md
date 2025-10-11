@@ -8,6 +8,10 @@
   A minimal Anki add-on/widget that allows you write messages on main menu. 
 </h4>
 
+## Potential erros 
+- This add-on was tested only on macOS, it was never tested on other operating systems.
+- When pasting contents into Sticky, it might not apply to its theme or you might see some lagging, so type your messages.
+
 ## Preview 
 <h2 align="center">
 	<img width="80%" height="auto" alt="image" src="https://github.com/user-attachments/assets/864fb3b0-661d-4cdc-ac05-0ade8137785f" />
