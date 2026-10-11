@@ -15,6 +15,7 @@ import aqt.deckbrowser
 
 
 from .settings import SettingsDialog, get_contrasting_font_color
+from . import bento_integration
 
 # --- Globals ---
 ADDON_NAME = "Sticky"
@@ -22,6 +23,7 @@ ADDON_FOLDER = os.path.dirname(__file__)
 CONFIG_PATH = os.path.join(ADDON_FOLDER, "config.json")
 CONFIG = {} # Start with an empty dict, will be populated by load_config
 cached_html = None
+config_loaded = False
 DEFAULT_CONFIG = {
     "note_text": "Welcome to Sticky! Open settings to edit this note.",
     "size": "Small",
@@ -29,7 +31,9 @@ DEFAULT_CONFIG = {
     "font_size": "Medium",
     "text_align": "Left",
     "bg_color": "#fef3c7",
-    "opacity": 1.0
+    "opacity": 1.0,
+    "manual_widget_width": 200,
+    "manual_widget_height": 200
 }
 
 # --- Config Management ---
@@ -38,7 +42,7 @@ def load_config():
     Loads configuration from config.json, creating it with defaults if it
     doesn't exist. This is the single source of truth for the add-on's config.
     """
-    global CONFIG
+    global CONFIG, cached_html, config_loaded
     
     final_config = DEFAULT_CONFIG.copy()
 
@@ -63,6 +67,14 @@ def load_config():
 
     CONFIG.clear()
     CONFIG.update(final_config)
+    cached_html = None
+    config_loaded = True
+
+
+def ensure_config_loaded():
+    """Load config before rendering if Anki/Onigiri asks for HTML early."""
+    if not config_loaded:
+        load_config()
 
 
 def reset_cache(reload: bool = True):
@@ -80,7 +92,7 @@ def reset_cache(reload: bool = True):
 
 # --- Helper Functions ---
 
-def get_font_face_rules():
+def get_font_face_rules(selected_font=None):
     """Generates @font-face rules for the fonts in the /fonts folder."""
     fonts_dir = os.path.join(ADDON_FOLDER, "fonts")
     if not os.path.isdir(fonts_dir):
@@ -95,6 +107,8 @@ def get_font_face_rules():
             font_family_name = next((name for name in known_fonts if basename.lower().startswith(name.lower())), None)
 
             if font_family_name:
+                if selected_font and font_family_name.lower() != selected_font.lower():
+                    continue
                 font_path = os.path.join(fonts_dir, filename)
                 try:
                     with open(font_path, "rb") as f:
@@ -123,6 +137,7 @@ def hex_to_rgba(hex_code, alpha):
 
 def generate_css():
     """Generates the complete CSS for the sticky note widget based on config."""
+    ensure_config_loaded()
     conf = CONFIG
     size_str = conf.get("size", "Small")
     size_map = {"Small": 200, "Medium": 300, "Big": 410}
@@ -143,7 +158,15 @@ def generate_css():
     font_family_str = f"'{font}', system-ui, sans-serif"
 
     return f"""
-        {get_font_face_rules()}
+        {get_font_face_rules(font)}
+        #sticky-wrapper {{
+            width: 100%;
+            height: 100%;
+            min-width: 0;
+            min-height: 0;
+            display: flex;
+            box-sizing: border-box;
+        }}
         #sticky-container {{
             width: {size_px}px;
             height: {size_px}px;
@@ -167,10 +190,27 @@ def generate_css():
             word-wrap: break-word; /* Wrap long words */
             overflow-y: auto; /* Add scrollbar if content overflows */
         }}
+        .external-widget-container #sticky-wrapper {{
+            width: 100% !important;
+            height: 100% !important;
+            min-width: 0 !important;
+            min-height: 0 !important;
+            display: flex !important;
+            flex: 1 1 auto !important;
+        }}
+        .external-widget-container #sticky-container {{
+            flex: 1 1 auto !important;
+        }}
+        .external-widget-container #sticky-note-display {{
+            min-width: 0 !important;
+            min-height: 0 !important;
+        }}
+        {bento_integration.sizing_css("#sticky-container", "#sticky-note-display", conf, size_px, size_px)}
     """
 
 def generate_html():
     """Generates the HTML for the sticky note display."""
+    ensure_config_loaded()
     note_text = CONFIG.get("note_text", "")
     display_html = html.escape(note_text)
     
@@ -185,6 +225,7 @@ def generate_html():
 def add_sticky_to_deck_browser(deck_browser: aqt.deckbrowser.DeckBrowser, content: aqt.deckbrowser.DeckBrowserContent):
     """Appends the sticky note widget to the deck browser's stats area."""
     global cached_html
+    ensure_config_loaded()
 
     if "<div id='sticky-wrapper'>" in content.stats:
         return
@@ -200,8 +241,25 @@ def on_theme_change():
     """Reset cache and refresh when theme changes."""
     reset_cache()
 
+
+
+_is_settings_open = False
+def debounce_settings(func):
+    def wrapper(*args, **kwargs):
+        global _is_settings_open
+        if _is_settings_open:
+            return
+        _is_settings_open = True
+        try:
+            return func()
+        finally:
+            _is_settings_open = False
+    return wrapper
+
+@debounce_settings
 def show_settings():
     """Shows the settings dialog and reloads config upon a successful save."""
+    ensure_config_loaded()
     # Pass a copy of the config to prevent the dialog from changing the
     # global state directly. Also pass the path for saving.
     dialog = SettingsDialog(mw, config=CONFIG.copy(), config_path=CONFIG_PATH)
@@ -223,7 +281,5 @@ gui_hooks.reviewer_will_end.append(reset_cache)
 gui_hooks.sync_did_finish.append(reset_cache)
 gui_hooks.theme_did_change.append(on_theme_change)
 
-# Add menu item for settings
-action = QAction("Sticky Settings", mw)
-action.triggered.connect(show_settings)
-mw.form.menuTools.addAction(action)
+bento_integration.register_widget("Sticky", settings_callback=show_settings)
+bento_integration.add_menu_action("Sticky Settings", show_settings)
